@@ -82,10 +82,11 @@ void interrupt() {
 }
 
 void chime() {
-  Serial.println("beep");
-  digitalWrite(buzz, HIGH);
-  delay(500);
-  digitalWrite(buzz, LOW);
+  tone(buzz, 2489, 125);
+  delay(150);
+  tone(buzz, 2093, 500);
+  delay(525);
+  noTone(buzz);
 }
 
 unsigned int parity(unsigned int data, unsigned int p) {
@@ -145,8 +146,8 @@ void auth(unsigned int number) {
   } else {
     Serial.println(" denied");
     digitalWrite(led, LOW);
-    digitalWrite(buzz, HIGH);
+    tone(buzz, 440, 700);
     delay(700);
-    digitalWrite(buzz, LOW);
+    noTone(buzz);
   }
 }
