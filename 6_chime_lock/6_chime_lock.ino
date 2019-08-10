@@ -17,7 +17,7 @@ class Lock {
   private:
 
     byte pin = 7;
-    byte led = 12;
+    byte led = 4;
     unsigned long openduration = 3000000;
 
     unsigned long unlocktime;
@@ -57,7 +57,7 @@ Lock strike;
 class Piezo {
   private:
 
-    byte buzz = 13;
+    byte buzz = 5;
 
   public:
 
@@ -89,6 +89,10 @@ volatile unsigned long data;
 unsigned long code = 0;
 
 void setup() {
+  // just cause I don't want the board LED on
+  pinMode(13, OUTPUT);
+  digitalWrite(13, LOW);
+  
   pinMode(door, INPUT);
 
   strike.enable();
