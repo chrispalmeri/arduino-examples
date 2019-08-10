@@ -1,27 +1,29 @@
-// remove delays and replace with timers
+// only blocking delay now is for the buzzer which maybe is fine
+// add more classes
 // need a timer for keypresses also - to reset after inactivity
-// you do already have a timer
-// refactor
 // code can only go up to 65000ish and rolls over or something if you keep typing
 // not sure it should be a number... 0021 is same as 21
 
 // your input pins
-int d0 = 2;
-int d1 = 3;
-int buzz = 13;
-int door = 6;
+byte d0 = 2;
+byte d1 = 3;
+byte door = 6;
 
 // last read activity
 volatile unsigned long timer;
 volatile bool reading = false;
 
 class Lock {
-  public:
+  private:
 
-    int pin = 7;
-    int led = 12;
-    bool secure = true;
+    byte pin = 7;
+    byte led = 12;
+    unsigned long openduration = 3000000;
+
     unsigned long unlocktime;
+    bool secure = true;
+
+  public:
 
     void enable() {
       pinMode(pin, OUTPUT);
@@ -29,18 +31,16 @@ class Lock {
     }
 
     void lock() {
-      Serial.println("lock");
       digitalWrite(led, LOW);
       digitalWrite(pin, LOW);
       secure = true;
     }
 
     void unlock() {
-      Serial.println("unlock");
-      digitalWrite(led, HIGH);
-      digitalWrite(pin, HIGH);
       unlocktime = micros();
       secure = false;
+      digitalWrite(led, HIGH);
+      digitalWrite(pin, HIGH);
     }
 
     bool loose() {
@@ -48,11 +48,39 @@ class Lock {
     }
 
     bool timeout() {
-      return (micros() - unlocktime > 5000000);
+      return (micros() - unlocktime > openduration);
     }
 };
 
 Lock strike;
+
+class Piezo {
+  private:
+
+    byte buzz = 13;
+
+  public:
+
+    void enable() {
+      pinMode(buzz, OUTPUT);
+    }
+
+    void deny() {
+      tone(buzz, 440, 700);
+      delay(700);
+      noTone(buzz);
+    }
+
+    void chime() {
+      tone(buzz, 2489, 125);
+      delay(150);
+      tone(buzz, 2093, 500);
+      delay(525);
+      noTone(buzz);
+    }
+};
+
+Piezo buzzer;
 
 // binary data
 volatile unsigned long data;
@@ -61,10 +89,10 @@ volatile unsigned long data;
 unsigned long code = 0;
 
 void setup() {
-  pinMode(buzz, OUTPUT);
   pinMode(door, INPUT);
 
   strike.enable();
+  buzzer.enable();
 
   attachInterrupt(digitalPinToInterrupt(d0), interrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(d1), interrupt, FALLING);
@@ -100,7 +128,7 @@ void loop() {
   }
 
   if (digitalRead(door) == LOW) {
-    chime();
+    buzzer.chime();
   }
 }
 
@@ -120,20 +148,6 @@ void interrupt() {
     // tag a 1 on the end of the data
     data = (data << 1) | 1;
   }
-}
-
-void deny() {
-  tone(buzz, 440, 700);
-  delay(700);
-  noTone(buzz);
-}
-
-void chime() {
-  tone(buzz, 2489, 125);
-  delay(150);
-  tone(buzz, 2093, 500);
-  delay(525);
-  noTone(buzz);
 }
 
 unsigned int parity(unsigned int data, unsigned int p) {
@@ -188,6 +202,6 @@ void auth(unsigned int number) {
     strike.unlock();
   } else {
     Serial.println(" denied");
-    deny();
+    buzzer.deny();
   }
 }
