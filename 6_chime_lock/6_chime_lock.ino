@@ -7,11 +7,32 @@
 // your input pins
 byte d0 = 2;
 byte d1 = 3;
-byte door = 6;
 
 // last read activity
 volatile unsigned long timer;
 volatile bool reading = false;
+
+// binary data
+volatile unsigned long data;
+
+//key data
+unsigned long code = 0;
+
+class Contact {
+  private:
+
+    byte pin = 6;
+
+  public:
+
+    void enable() {
+      pinMode(pin, INPUT);
+    }
+
+    bool ajar() {
+      return (digitalRead(pin) == LOW);
+    }
+};
 
 class Lock {
   private:
@@ -44,15 +65,13 @@ class Lock {
     }
 
     bool loose() {
-      return !secure;
+      return (!secure);
     }
 
     bool timeout() {
       return (micros() - unlocktime > openduration);
     }
 };
-
-Lock strike;
 
 class Piezo {
   private:
@@ -79,24 +98,58 @@ class Piezo {
       noTone(buzz);
     }
 };
+/*
+  class Wiegand {
+  private:
 
+    byte d0 = 2;
+    byte d1 = 3;
+    volatile unsigned long timer;
+    volatile bool reading = false;
+    volatile unsigned long data;
+    unsigned long code = 0;
+
+  public:
+
+    void enable() {
+      // really doesn't work inside here
+      //attachInterrupt(digitalPinToInterrupt(d0), interrupt, FALLING);
+      //attachInterrupt(digitalPinToInterrupt(d1), interrupt, FALLING);
+    }
+
+    void interrupt() {
+      // punch the clock for last activity
+      timer = micros();
+      reading = true;
+
+      int d0state = digitalRead(d0);
+      int d1state = digitalRead(d1);
+
+      if (d0state == LOW && d1state == HIGH) {
+        // tag a 0 on the end of the data
+        data = (data << 1);
+      }
+      if (d0state == HIGH && d1state == LOW) {
+        // tag a 1 on the end of the data
+        data = (data << 1) | 1;
+      }
+    }
+  };
+*/
+Contact door;
+Lock strike;
 Piezo buzzer;
-
-// binary data
-volatile unsigned long data;
-
-//key data
-unsigned long code = 0;
+//Wiegand reader;
 
 void setup() {
   // just cause I don't want the board LED on
   pinMode(13, OUTPUT);
   digitalWrite(13, LOW);
-  
-  pinMode(door, INPUT);
 
+  door.enable();
   strike.enable();
   buzzer.enable();
+  //reader.enable();
 
   attachInterrupt(digitalPinToInterrupt(d0), interrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(d1), interrupt, FALLING);
@@ -110,7 +163,7 @@ void loop() {
     unsigned long now = micros();
     long elapsed = now - timer;
 
-    // if its been more than 3ms then tie it off
+    // if its been more than 3ms then you can wrap up
     if (elapsed > 3000) {
       //Serial.println(data, BIN);
 
@@ -131,7 +184,7 @@ void loop() {
     strike.lock();
   }
 
-  if (digitalRead(door) == LOW) {
+  if (door.ajar()) {
     buzzer.chime();
   }
 }
@@ -189,11 +242,6 @@ void handleCard() {
   if (parity(evenHalf, 0) == evenParity && parity(oddHalf, 1) == oddParity) {
     unsigned int facility = (data >> 17) & 255;
     unsigned int number = (data >> 1) & 65535;
-
-    //Serial.print("Facility code: ");
-    //Serial.print(facility);
-    //Serial.print(" Card number: ");
-    //Serial.println(number);
 
     auth(number);
   }
