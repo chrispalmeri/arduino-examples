@@ -4,35 +4,6 @@
 // code can only go up to 65000ish and rolls over or something if you keep typing
 // not sure it should be a number... 0021 is same as 21
 
-// your input pins
-byte d0 = 2;
-byte d1 = 3;
-
-// last read activity
-volatile unsigned long timer;
-volatile bool reading = false;
-
-// binary data
-volatile unsigned long data;
-
-//key data
-unsigned long code = 0;
-
-class Contact {
-  private:
-
-    byte pin = 6;
-
-  public:
-
-    void enable() {
-      pinMode(pin, INPUT);
-    }
-
-    bool ajar() {
-      return (digitalRead(pin) == LOW);
-    }
-};
 
 class Lock {
   private:
@@ -65,13 +36,15 @@ class Lock {
     }
 
     bool loose() {
-      return (!secure);
+      return !secure;
     }
 
     bool timeout() {
       return (micros() - unlocktime > openduration);
     }
 };
+
+Lock strike;
 
 class Piezo {
   private:
@@ -98,85 +71,161 @@ class Piezo {
       noTone(buzz);
     }
 };
-/*
-  class Wiegand {
+
+Piezo buzzer;
+
+class Contact {
   private:
 
-    byte d0 = 2;
-    byte d1 = 3;
-    volatile unsigned long timer;
-    volatile bool reading = false;
-    volatile unsigned long data;
-    unsigned long code = 0;
+    byte pin = 6;
 
   public:
 
     void enable() {
-      // really doesn't work inside here
-      //attachInterrupt(digitalPinToInterrupt(d0), interrupt, FALLING);
-      //attachInterrupt(digitalPinToInterrupt(d1), interrupt, FALLING);
+      pinMode(pin, INPUT);
     }
 
-    void interrupt() {
-      // punch the clock for last activity
-      timer = micros();
-      reading = true;
-
-      int d0state = digitalRead(d0);
-      int d1state = digitalRead(d1);
-
-      if (d0state == LOW && d1state == HIGH) {
-        // tag a 0 on the end of the data
-        data = (data << 1);
-      }
-      if (d0state == HIGH && d1state == LOW) {
-        // tag a 1 on the end of the data
-        data = (data << 1) | 1;
-      }
+    bool trigger() {
+      return (digitalRead(pin) == LOW);
     }
-  };
-*/
+};
+
 Contact door;
-Lock strike;
-Piezo buzzer;
-//Wiegand reader;
+
+class Wiegand {
+  private:
+
+    //key data
+    unsigned long code = 0;
+
+  public:
+
+    // your input pins
+    byte d0 = 2;
+    byte d1 = 3;
+
+    // last read activity
+    volatile unsigned long timer;
+    volatile bool reading = false;
+
+    // binary data
+    volatile unsigned long data;
+
+    //public:
+
+    unsigned int parity(unsigned int data, unsigned int p) {
+      while (data) {
+        p ^= (data & 1);
+        data >>= 1;
+      }
+      return p;
+    }
+
+    void handleKey() {
+      if (data == 10) {
+        // reset
+        //Serial.println("escape");
+        code = 0;
+      } else if (data == 11) {
+        // auth code and reset
+        //Serial.println("enter");
+        auth(code);
+        code = 0;
+      } else {
+        // add data to code
+        code *= 10;
+        code += data;
+        //Serial.println(code);
+      }
+    }
+
+    void handleCard() {
+      unsigned int evenParity = (data >> 25) & 1;
+      unsigned int evenHalf = (data >> 13) & 4095;
+      unsigned int oddHalf = (data >> 1) & 4095;
+      unsigned int oddParity = data & 1;
+
+      if (parity(evenHalf, 0) == evenParity && parity(oddHalf, 1) == oddParity) {
+        unsigned int facility = (data >> 17) & 255;
+        unsigned int number = (data >> 1) & 65535;
+
+        //Serial.print("Facility code: ");
+        //Serial.print(facility);
+        //Serial.print(" Card number: ");
+        //Serial.println(number);
+
+        auth(number);
+      }
+    }
+
+    void auth(unsigned int number) {
+      Serial.print(number);
+      if (number == 34169 || number == 5555) {
+        Serial.println(" approved");
+        strike.unlock();
+      } else {
+        Serial.println(" denied");
+        buzzer.deny();
+      }
+    }
+
+};
+
+Wiegand reader;
+
+void interrupt() {
+  // punch the clock for last activity
+  reader.timer = micros();
+  reader.reading = true;
+
+  int d0state = digitalRead(reader.d0);
+  int d1state = digitalRead(reader.d1);
+
+  if (d0state == LOW && d1state == HIGH) {
+    // tag a 0 on the end of the reader.data
+    reader.data = (reader.data << 1);
+  }
+  if (d0state == HIGH && d1state == LOW) {
+    // tag a 1 on the end of the reader.data
+    reader.data = (reader.data << 1) | 1;
+  }
+}
 
 void setup() {
   // just cause I don't want the board LED on
   pinMode(13, OUTPUT);
   digitalWrite(13, LOW);
 
-  door.enable();
   strike.enable();
   buzzer.enable();
-  //reader.enable();
+  door.enable();
 
-  attachInterrupt(digitalPinToInterrupt(d0), interrupt, FALLING);
-  attachInterrupt(digitalPinToInterrupt(d1), interrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(reader.d0), interrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(reader.d1), interrupt, FALLING);
 
   Serial.begin(9600);
 }
 
 void loop() {
-  if (reading == true) {
+  if (reader.reading == true) {
     // how long since last activity
     unsigned long now = micros();
-    long elapsed = now - timer;
+    long elapsed = now - reader.timer;
 
-    // if its been more than 3ms then you can wrap up
+    // if its been more than 3ms then tie it off
     if (elapsed > 3000) {
-      //Serial.println(data, BIN);
+      //Serial.println(reader.data, BIN);
 
-      if (data < 16) {
+      if (reader.data < 16) {
         // must be a keypress
-        handleKey();
+        reader.handleKey();
       } else {
         // assume it is 26-bit wiegand
-        handleCard();
+        reader.handleCard();
       }
 
-      reading = false;
-      data = 0;
+      reader.reading = false;
+      reader.data = 0;
     }
   }
 
@@ -184,76 +233,7 @@ void loop() {
     strike.lock();
   }
 
-  if (door.ajar()) {
+  if (door.trigger()) {
     buzzer.chime();
-  }
-}
-
-void interrupt() {
-  // punch the clock for last activity
-  timer = micros();
-  reading = true;
-
-  int d0state = digitalRead(d0);
-  int d1state = digitalRead(d1);
-
-  if (d0state == LOW && d1state == HIGH) {
-    // tag a 0 on the end of the data
-    data = (data << 1);
-  }
-  if (d0state == HIGH && d1state == LOW) {
-    // tag a 1 on the end of the data
-    data = (data << 1) | 1;
-  }
-}
-
-unsigned int parity(unsigned int data, unsigned int p) {
-  while (data) {
-    p ^= (data & 1);
-    data >>= 1;
-  }
-  return p;
-}
-
-void handleKey() {
-  if (data == 10) {
-    // reset
-    //Serial.println("escape");
-    code = 0;
-  } else if (data == 11) {
-    // auth code and reset
-    //Serial.println("enter");
-    auth(code);
-    code = 0;
-  } else {
-    // add data to code
-    code *= 10;
-    code += data;
-    //Serial.println(code);
-  }
-}
-
-void handleCard() {
-  unsigned int evenParity = (data >> 25) & 1;
-  unsigned int evenHalf = (data >> 13) & 4095;
-  unsigned int oddHalf = (data >> 1) & 4095;
-  unsigned int oddParity = data & 1;
-
-  if (parity(evenHalf, 0) == evenParity && parity(oddHalf, 1) == oddParity) {
-    unsigned int facility = (data >> 17) & 255;
-    unsigned int number = (data >> 1) & 65535;
-
-    auth(number);
-  }
-}
-
-void auth(unsigned int number) {
-  Serial.print(number);
-  if (number == 34169 || number == 5555) {
-    Serial.println(" approved");
-    strike.unlock();
-  } else {
-    Serial.println(" denied");
-    buzzer.deny();
   }
 }
