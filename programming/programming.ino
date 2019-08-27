@@ -1,61 +1,10 @@
-class Control {
-  private:
+#include "Timer.h"
 
-    bool programming = false;
+Timer timeclock;
 
-  public:
+#include "Controller.h"
 
-    // handleKey probably needs to come in here so controller can handle ENT and ESC
-    // you also need a timer to enter programming after a card is approved
-
-    void auth(unsigned int number) {
-      if (programming) {
-        switch (number) {
-          case 1:
-            Serial.println("permit all");
-            break;
-          case 2:
-            Serial.println("use creds");
-            break;
-          case 3:
-            Serial.println("deny all");
-            break;
-          case 4:
-            Serial.println("audit creds");
-            break;
-          case 5:
-            Serial.println("enroll cred");
-            break;
-          case 6:
-            Serial.println("revoke cred");
-            break;
-          case 8:
-            Serial.println("exit programming");
-            programming = false;
-            break;
-          default:
-            Serial.println("unexpected input");
-        }
-      } else {
-        switch (number) {
-          case 8:
-            Serial.println("enter programming");
-            programming = true;
-            break;
-          default:
-            Serial.print(number);
-            if (number == 34169 || number == 5555) {
-              Serial.println(" approved");
-            } else {
-              Serial.println(" denied");
-            }
-        }
-      }
-
-    }
-};
-
-Control controller;
+Controller controller;
 
 class Wiegand {
   private:
@@ -65,14 +14,11 @@ class Wiegand {
     byte d1pin = 3;
 
     // last read activity
-    volatile unsigned long timer;
+    //volatile unsigned long timer;
     volatile bool reading = false;
 
     // binary data
     volatile unsigned long data;
-
-    //key data
-    unsigned long code = 0;
 
     unsigned int parity(unsigned int data, unsigned int p) {
       while (data) {
@@ -80,24 +26,6 @@ class Wiegand {
         data >>= 1;
       }
       return p;
-    }
-
-    void handleKey() {
-      if (data == 10) {
-        // reset
-        Serial.println("ESC");
-        code = 0;
-      } else if (data == 11) {
-        // auth code and reset
-        Serial.println("ENT");
-        controller.auth(code);
-        code = 0;
-      } else {
-        // add data to code
-        Serial.println(data);
-        code *= 10;
-        code += data;
-      }
     }
 
     void handleCard() {
@@ -131,7 +59,8 @@ class Wiegand {
 
     void interrupt() {
       // punch the clock for last activity
-      timer = micros();
+      //timer = micros();
+      timeclock.punch();
       reading = true;
 
       int d0state = digitalRead(d0pin);
@@ -151,7 +80,8 @@ class Wiegand {
       if (reading == true) {
         // how long since last activity
         unsigned long now = micros();
-        long elapsed = now - timer;
+        //long elapsed = now - timer;
+        long elapsed = now - timeclock.last();
 
         // if its been more than 3ms then tie it off
         if (elapsed > 3000) {
@@ -159,7 +89,7 @@ class Wiegand {
 
           if (data < 16) {
             // must be a keypress
-            handleKey();
+            controller.handleKey(data);
           } else {
             // assume it is 26-bit wiegand
             handleCard();
@@ -189,4 +119,5 @@ void setup() {
 
 void loop() {
   reader.poll();
+  controller.poll();
 }
